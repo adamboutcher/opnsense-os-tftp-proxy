@@ -1,0 +1,133 @@
+name: Release package
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      target:
+        description: OPNsense target to build
+        type: choice
+        required: true
+        default: all
+        options:
+          - all
+          - "26.1"
+          - "26.7"
+
+permissions:
+  contents: write
+
+jobs:
+  targets:
+    name: Resolve targets
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - name: Build target matrix
+        id: matrix
+        env:
+          TARGET: ${{ github.event.inputs.target }}
+        run: |
+          set -eu
+          target="${TARGET:-all}"
+
+          case "$target" in
+            all)
+              matrix='{"include":[{"opnsense":"26.1","plugins_branch":"stable/26.1","freebsd":"14.3","freebsd_major":"14"},{"opnsense":"26.7","plugins_branch":"stable/26.7","freebsd":"15.1","freebsd_major":"15"}]}'
+              ;;
+            26.1)
+              matrix='{"include":[{"opnsense":"26.1","plugins_branch":"stable/26.1","freebsd":"14.3","freebsd_major":"14"}]}'
+              ;;
+            26.7)
+              matrix='{"include":[{"opnsense":"26.7","plugins_branch":"stable/26.7","freebsd":"15.1","freebsd_major":"15"}]}'
+              ;;
+            *)
+              echo "Unsupported target: $target" >&2
+              exit 1
+              ;;
+          esac
+
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build for OPNsense ${{ matrix.opnsense }}
+    runs-on: ubuntu-latest
+    needs: targets
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.targets.outputs.matrix) }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve package version
+        id: vars
+        run: |
+          set -eu
+          version="$(sed -n 's/^PLUGIN_VERSION=[[:space:]]*//p' net/tftp-proxy/Makefile)"
+          if [ -z "$version" ]; then
+            echo "Unable to determine PLUGIN_VERSION" >&2
+            exit 1
+          fi
+          echo "plugin_version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Build package in FreeBSD
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: ${{ matrix.freebsd }}
+          usesh: true
+          prepare: |
+            set -eux
+            env IGNORE_OSVERSION=yes pkg install -y git gmake
+            git clone --depth 1 -b ${{ matrix.plugins_branch }} https://github.com/opnsense/plugins /usr/plugins
+            git clone --depth 1 -b ${{ matrix.plugins_branch }} https://github.com/opnsense/core /usr/core
+          run: |
+            set -eux
+            rm -rf /usr/plugins/net/tftp-proxy
+            mkdir -p /usr/plugins/net
+            cp -R "$GITHUB_WORKSPACE/net/tftp-proxy" /usr/plugins/net/tftp-proxy
+            cd /usr/plugins/net/tftp-proxy
+            env IGNORE_OSVERSION=yes make package
+
+            pkg_file="$(find work/pkg -maxdepth 1 -type f -name '*.pkg' | head -n 1)"
+            if [ -z "$pkg_file" ]; then
+              echo "No package was produced" >&2
+              exit 1
+            fi
+
+            mkdir -p "$GITHUB_WORKSPACE/dist"
+            cp "$pkg_file" "$GITHUB_WORKSPACE/dist/os-tftp-proxy-${{ steps.vars.outputs.plugin_version }}-opnsense${{ matrix.opnsense }}-freebsd${{ matrix.freebsd_major }}.pkg"
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pkg-opnsense${{ matrix.opnsense }}
+          path: dist/*.pkg
+          if-no-files-found: error
+
+  release-assets:
+    name: Upload release assets
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Download built packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: pkg-opnsense*
+          merge-multiple: true
+          path: release-assets
+
+      - name: Attach packages to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -eu
+          ls -lh release-assets/*.pkg
+          gh release upload "$TAG" release-assets/*.pkg --clobber
