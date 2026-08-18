@@ -1,4 +1,4 @@
-# opensense-os-tftp-proxy
+# opnsense-os-tftp-proxy
 
 ## Installation
 
