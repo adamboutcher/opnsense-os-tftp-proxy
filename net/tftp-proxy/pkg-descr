@@ -1,0 +1,11 @@
+Tftp-proxy is a proxy for the Trivial File Transfer Protocol. TFTP
+connections on port 69 are redirected into the proxy via pf(4), after
+which the proxy connects to the server on behalf of the client.
+
+The proxy allows TFTP data connections to pass by registering dynamic
+pf(4) anchors. The BSD tftp-proxy binary is already part of the base
+system at /usr/libexec/tftp-proxy and is activated via inetd(8).
+
+This plugin provides an OPNsense GUI and automatic pf anchor injection.
+
+WWW: https://man.freebsd.org/cgi/man.cgi?tftp-proxy

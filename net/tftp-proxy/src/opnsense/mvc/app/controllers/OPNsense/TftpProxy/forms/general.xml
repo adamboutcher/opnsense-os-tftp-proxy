@@ -1,0 +1,30 @@
+<form>
+    <field>
+        <type>header</type>
+        <label>General Settings</label>
+    </field>
+    <field>
+        <id>general.enabled</id>
+        <label>Enable</label>
+        <type>checkbox</type>
+        <help>Enable the TFTP proxy. Requires a firewall port-forward rule redirecting UDP/69 to the listen address and port configured below.</help>
+    </field>
+    <field>
+        <id>general.listenaddress</id>
+        <label>Listen Address</label>
+        <type>text</type>
+        <help>The IPv4 address on which tftp-proxy listens via inetd(8). Use 127.0.0.1 when redirecting via a pf(4) rdr rule.</help>
+    </field>
+    <field>
+        <id>general.listenport</id>
+        <label>Listen Port</label>
+        <type>text</type>
+        <help>The UDP port on which tftp-proxy listens (default 6969). Create a NAT port-forward rule redirecting incoming UDP/69 to this port.</help>
+    </field>
+    <field>
+        <id>general.verbose</id>
+        <label>Verbose Logging</label>
+        <type>checkbox</type>
+        <help>Pass -v to tftp-proxy for verbose connection logging to syslog.</help>
+    </field>
+</form>

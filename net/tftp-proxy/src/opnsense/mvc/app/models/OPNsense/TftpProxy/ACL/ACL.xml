@@ -1,0 +1,9 @@
+<acl>
+    <page-services-tftpproxy>
+        <name>Services: TFTP Proxy</name>
+        <patterns>
+            <pattern>ui/tftpproxy/*</pattern>
+            <pattern>api/tftpproxy/*</pattern>
+        </patterns>
+    </page-services-tftpproxy>
+</acl>
