@@ -1,4 +1,4 @@
-# opensense-os-tftp-proxy
+# OPNsense os-tftp-proxy
 
 ## Package builds
 

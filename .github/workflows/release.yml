@@ -68,7 +68,10 @@ jobs:
         id: vars
         run: |
           set -eu
-          version="$(sed -n 's/^PLUGIN_VERSION=[[:space:]]*//p' net/tftp-proxy/Makefile)"
+          version="$(
+            sed -n 's/^PLUGIN_VERSION=[[:space:]]*//p' net/tftp-proxy/Makefile \
+              | sed 's/[[:space:]#].*$//'
+          )"
           if [ -z "$version" ]; then
             echo "Unable to determine PLUGIN_VERSION" >&2
             exit 1
