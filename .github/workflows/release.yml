@@ -129,8 +129,9 @@ jobs:
       - name: Attach packages to release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           TAG: ${{ github.event.release.tag_name }}
         run: |
           set -eu
           ls -lh release-assets/*.pkg
-          gh release upload "$TAG" release-assets/*.pkg --clobber
+          gh release upload "$TAG" release-assets/*.pkg --clobber --repo "$GH_REPO"
