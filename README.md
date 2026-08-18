@@ -1,4 +1,4 @@
-# opnsense-os-tftp-proxy
+# OpnSense Plugin: os-tftp-proxy
 
 ## Installation
 
