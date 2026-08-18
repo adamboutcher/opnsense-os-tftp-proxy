@@ -23,6 +23,7 @@ The **local plugins tree** is just a local checkout of the official OPNsense plu
 - It is a folder on disk you control (example: `~/opnsense/plugins`)
 - It is **not** a folder that already exists on a default firewall install
 - You create/access it by cloning the plugins repository on your build host
+- Official plugins repository: https://github.com/opnsense/plugins
 
 #### 3) Get the code onto your build host
 
@@ -31,7 +32,17 @@ On the build host, clone both repositories:
 - official plugins tree (where packages are built from)
 - this plugin repository (source you want to add)
 
-You can do this with `git clone`, or by downloading archives and extracting them.
+Example:
+
+```sh
+mkdir -p ~/opnsense
+cd ~/opnsense
+
+git clone https://github.com/opnsense/plugins.git
+git clone https://github.com/adamboutcher/opnsense-os-tftp-proxy.git
+```
+
+You can also download archives and extract them if you prefer not to use git.
 
 #### 4) Add this plugin source to the plugins tree
 
@@ -42,9 +53,26 @@ Inside your local plugins tree checkout:
 3. Confirm the resulting path is `net/tftp-proxy`.
 4. Confirm that directory contains the plugin `Makefile` and `src/` subtree.
 
+Example:
+
+```sh
+mkdir -p ~/opnsense/plugins/net
+cp -R ~/opnsense/opnsense-os-tftp-proxy/net/tftp-proxy ~/opnsense/plugins/net/
+ls ~/opnsense/plugins/net/tftp-proxy
+```
+
 #### 5) Build the package
 
-Build `os-tftp-proxy` using your OPNsense plugins build workflow on the build host.
+Build `os-tftp-proxy` from inside the plugins tree on the build host.
+
+Example:
+
+```sh
+cd ~/opnsense/plugins/net/tftp-proxy
+make package
+```
+
+This creates an `os-tftp-proxy` package artifact that you can copy to your firewall.
 
 #### 6) Install on OPNsense
 
