@@ -1,0 +1,5 @@
+<menu>
+    <Services>
+        <TftpProxy VisibleName="TFTP Proxy" cssClass="fa fa-exchange fa-fw" url="/ui/tftpproxy"/>
+    </Services>
+</menu>

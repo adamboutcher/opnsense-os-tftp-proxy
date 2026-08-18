@@ -1,0 +1,99 @@
+#!/bin/sh
+#
+# PROVIDE: os-tftp-proxy
+# REQUIRE: DAEMON pf inetd
+# KEYWORD: shutdown
+#
+# Copyright (C) 2024 Adam Boutcher
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice,
+#    this list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright
+#    notice, this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+# INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+# AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+# AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+# OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+# SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+# INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+# CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+# POSSIBILITY OF SUCH DAMAGE.
+
+. /etc/rc.subr
+
+name="ostftpproxy"
+rcvar="os_tftp_proxy_enable"
+
+load_rc_config os-tftp-proxy
+
+: ${os_tftp_proxy_enable:="NO"}
+
+start_cmd="tftpproxy_start"
+stop_cmd="tftpproxy_stop"
+restart_cmd="tftpproxy_restart"
+status_cmd="tftpproxy_status"
+extra_commands="reload"
+reload_cmd="tftpproxy_reload"
+
+INETD_CONF="/etc/inetd.conf.d/tftp-proxy"
+
+tftpproxy_start()
+{
+    if [ ! -f "${INETD_CONF}" ]; then
+        echo "tftp-proxy inetd config not found: ${INETD_CONF}"
+        return 1
+    fi
+    if [ -f /var/run/inetd.pid ]; then
+        kill -HUP "$(cat /var/run/inetd.pid)"
+    fi
+    echo "tftp-proxy started (via inetd HUP)"
+}
+
+tftpproxy_stop()
+{
+    # Remove the inetd config so it does not re-activate on reload, then HUP
+    # inetd to flush the service entry.
+    if [ -f "${INETD_CONF}" ]; then
+        rm -f "${INETD_CONF}"
+    fi
+    if [ -f /var/run/inetd.pid ]; then
+        kill -HUP "$(cat /var/run/inetd.pid)"
+    fi
+    # Terminate any running tftp-proxy worker processes
+    pkill -f /usr/libexec/tftp-proxy || true
+    echo "tftp-proxy stopped"
+}
+
+tftpproxy_restart()
+{
+    tftpproxy_stop
+    sleep 1
+    tftpproxy_start
+}
+
+tftpproxy_reload()
+{
+    tftpproxy_start
+}
+
+tftpproxy_status()
+{
+    if pgrep -f tftp-proxy > /dev/null 2>&1; then
+        echo "tftp-proxy is running"
+        return 0
+    else
+        echo "tftp-proxy is not running (inetd-managed, starts on-demand)"
+        return 1
+    fi
+}
+
+run_rc_command "$1"
