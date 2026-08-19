@@ -75,8 +75,11 @@ tftpproxy_stop()
 
 tftpproxy_restart()
 {
-    tftpproxy_stop
-    sleep 1
+    # Kill any running worker and re-HUP inetd without touching INETD_CONF,
+    # since tftpproxy_stop removes it and tftpproxy_start requires it to
+    # exist; by the time restart runs, the config has already been
+    # regenerated to reflect the desired state.
+    pkill -f /usr/libexec/tftp-proxy || true
     tftpproxy_start
 }
 
@@ -87,7 +90,7 @@ tftpproxy_reload()
 
 tftpproxy_status()
 {
-    if pgrep -f tftp-proxy > /dev/null 2>&1; then
+    if pgrep -f /usr/libexec/tftp-proxy > /dev/null 2>&1; then
         echo "tftp-proxy is running"
         return 0
     else
