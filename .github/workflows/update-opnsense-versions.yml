@@ -1,0 +1,196 @@
+name: Update OPNsense versions
+
+# Runs quarterly to check for new OPNsense stable releases and open a PR
+# updating SUPPORTED_VERSIONS (and the workflow_dispatch options list) in
+# release.yml if anything has changed.
+
+on:
+  schedule:
+    # 09:00 UTC on the 1st of January, April, July, and October
+    - cron: "0 9 1 1,4,7,10 *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+# Prevent overlapping schedule/workflow_dispatch runs from racing while
+# force-pushing to the same chore/update-opnsense-versions-YYYY-MM branch.
+concurrency:
+  group: update-opnsense-versions
+  cancel-in-progress: false
+
+jobs:
+  update-versions:
+    name: Detect and update OPNsense versions
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve latest stable OPNsense versions
+        id: versions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # List all stable/* branches in opnsense/plugins and extract the
+          # version numbers (e.g. "stable/26.7" -> "26.7").
+          # The grep is wrapped with `|| true`: under pipefail, a "no match"
+          # exit from grep would otherwise abort this step immediately,
+          # skipping the explicit empty-check (and its clearer error
+          # message) below. A real gh api/jq failure earlier in the pipe
+          # still aborts the step - pipefail keeps the last non-zero exit.
+          all_versions=$(
+            gh api repos/opnsense/plugins/git/matching-refs/heads/stable/ \
+              --jq '.[].ref | ltrimstr("refs/heads/stable/")' \
+            | { grep -E '^[0-9]+\.[0-9]+$' || true; } \
+            | sort -t. -k1,1n -k2,2n
+          )
+
+          if [ -z "$all_versions" ]; then
+            echo "::error::No stable/* branches resolved from opnsense/plugins (API failure or unexpected response); aborting instead of writing an empty SUPPORTED_VERSIONS." >&2
+            exit 1
+          fi
+
+          echo "All stable versions found:"
+          echo "$all_versions"
+
+          # Keep only the last 3.
+          last3=$(echo "$all_versions" | tail -n 3)
+          echo "Last 3: $last3"
+
+          # For each version, resolve the FreeBSD version from the branch's
+          # Makefile (PLUGIN_FREEBSD variable in opnsense/plugins).
+          supported=""
+          while IFS= read -r ver; do
+            # Same `|| true` reasoning as above: a missing PLUGIN_FREEBSD
+            # line must fall through to the explicit check below rather
+            # than aborting the step via pipefail on grep's exit status.
+            freebsd=$(
+              gh api \
+                "repos/opnsense/plugins/contents/Mk/plugins.mk?ref=stable/${ver}" \
+                --jq '.content' \
+              | base64 -d \
+              | { grep -E '^PLUGIN_FREEBSD[[:space:]]*=' || true; } \
+              | head -n 1 \
+              | sed 's/^PLUGIN_FREEBSD[[:space:]]*=[[:space:]]*//' \
+              | tr -d '[:space:]'
+            )
+            if [ -z "$freebsd" ]; then
+              echo "::error::Could not resolve FreeBSD version for OPNsense ${ver}; refusing to open a PR that would silently drop a supported version." >&2
+              exit 1
+            fi
+            echo "OPNsense ${ver} -> FreeBSD ${freebsd}"
+            supported="${supported}${ver}|${freebsd}"$'\n'
+          done <<< "$last3"
+
+          # Trim trailing newline.
+          supported=$(printf '%s' "$supported" | sed '/^$/d')
+
+          echo "Resolved SUPPORTED_VERSIONS:"
+          echo "$supported"
+
+          # Write to a temp file so the next step can read it safely.
+          printf '%s\n' "$supported" > /tmp/supported_versions.txt
+
+      - name: Update release.yml
+        run: |
+          python3 - <<'PYEOF'
+          import re, sys
+
+          supported = open("/tmp/supported_versions.txt").read().strip()
+          versions = [line.split("|", 1)[0] for line in supported.splitlines() if line.strip()]
+
+          release_yml = open(".github/workflows/release.yml").read()
+
+          # Replace the SUPPORTED_VERSIONS block. The `SUPPORTED_VERSIONS:`
+          # key itself must be indented exactly 2 spaces (matching release.yml's
+          # current `env:` block); the entry lines under it accept any amount
+          # of leading whitespace.
+          def replace_supported_versions(content, new_block):
+              pattern = r'(  SUPPORTED_VERSIONS: \|\n)((?:[ \t]+[^\n]*\n)*)'
+              new_lines = ''.join(f"    {line}\n" for line in new_block.splitlines())
+              if not re.search(pattern, content):
+                  print("ERROR: SUPPORTED_VERSIONS block not found in release.yml", file=sys.stderr)
+                  sys.exit(1)
+              return re.sub(pattern, r'\g<1>' + new_lines, content)
+
+          # Replace the options list (lines after the "# Keep this list in sync..." comment).
+          def replace_options(content, version_list):
+              pattern = r'(        # Keep this list in sync.*?\n        options:\n)((?:[ \t]+-[^\n]*\n)*)'
+              new_options = '          - all\n' + ''.join(f'          - "{v}"\n' for v in version_list)
+              if not re.search(pattern, content, flags=re.DOTALL):
+                  print("ERROR: options block not found in release.yml", file=sys.stderr)
+                  sys.exit(1)
+              return re.sub(pattern, r'\g<1>' + new_options, content, flags=re.DOTALL)
+
+          updated = replace_supported_versions(release_yml, supported)
+          updated = replace_options(updated, versions)
+
+          open(".github/workflows/release.yml", "w").write(updated)
+          print("release.yml updated successfully")
+          PYEOF
+
+      - name: Check for changes
+        id: diff
+        run: |
+          if git diff --quiet .github/workflows/release.yml; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Diff:"
+            git diff .github/workflows/release.yml
+          fi
+
+      - name: Open pull request
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          date_slug=$(date +%Y-%m)
+          branch="chore/update-opnsense-versions-${date_slug}"
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # If the branch already exists upstream, only overwrite it if its
+          # tip is still our own automated commit. A maintainer may have
+          # pushed a manual fix (e.g. correcting a FreeBSD mapping) to the
+          # pending PR, and a blind force-push would silently discard it.
+          if gh api "repos/${GITHUB_REPOSITORY}/branches/${branch}" >/dev/null 2>&1; then
+            # Use the GitHub-verified account login (.author.login), not the
+            # freeform git commit author name (.commit.author.name) - the
+            # latter is just `git config user.name` and can be set to
+            # anything, so it can't actually attest who pushed the commit.
+            remote_author=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${branch}" --jq '.author.login // ""')
+            if [ -z "$remote_author" ] || [ "$remote_author" != "github-actions[bot]" ]; then
+              echo "::error::Branch ${branch} has a tip commit not attributable to the github-actions[bot] account (resolved login: '${remote_author:-<none>}'). Refusing to force-push over what may be manual changes on the pending PR." >&2
+              exit 1
+            fi
+          fi
+
+          git checkout -b "$branch"
+          git add .github/workflows/release.yml
+          git commit -m "chore: update supported OPNsense versions (${date_slug})"
+
+          # Force-push so re-runs in the same month overwrite the previous
+          # automated commit (safe: verified above the tip is our own).
+          git push --force origin "$branch"
+
+          # Open a PR only if one doesn't already exist for this branch.
+          existing=$(gh pr list --head "$branch" --json number --jq '.[0].number // ""')
+          if [ -z "$existing" ]; then
+            gh pr create \
+              --title "chore: update supported OPNsense versions (${date_slug})" \
+              --body "Automated quarterly update of the supported OPNsense versions in \`release.yml\`.
+
+          Please review the changes and verify the FreeBSD version mappings before merging." \
+              --base main \
+              --head "$branch"
+          else
+            echo "PR #${existing} already exists for branch ${branch}, skipping creation."
+          fi
