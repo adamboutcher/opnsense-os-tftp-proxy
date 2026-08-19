@@ -1,5 +1,17 @@
 name: Release package
 
+# ---------------------------------------------------------------------------
+# Supported OPNsense versions (update here when a new release is available).
+# Each entry is: opnsense|freebsd
+# plugins_branch is derived as "stable/{opnsense}"; freebsd_major from freebsd.
+# Keep the last 3 stable releases so there is overlap during transitions.
+# ---------------------------------------------------------------------------
+env:
+  SUPPORTED_VERSIONS: |
+    25.7|14.2
+    26.1|14.3
+    26.7|15.1
+
 on:
   release:
     types:
@@ -11,8 +23,10 @@ on:
         type: choice
         required: true
         default: all
+        # Keep this list in sync (same order) with SUPPORTED_VERSIONS above.
         options:
           - all
+          - "25.7"
           - "26.1"
           - "26.7"
 
@@ -30,25 +44,40 @@ jobs:
         id: matrix
         env:
           TARGET: ${{ github.event.inputs.target }}
+          SUPPORTED_VERSIONS: ${{ env.SUPPORTED_VERSIONS }}
         run: |
           set -eu
           target="${TARGET:-all}"
 
-          case "$target" in
-            all)
-              matrix='{"include":[{"opnsense":"26.1","plugins_branch":"stable/26.1","freebsd":"14.3","freebsd_major":"14"},{"opnsense":"26.7","plugins_branch":"stable/26.7","freebsd":"15.1","freebsd_major":"15"}]}'
-              ;;
-            26.1)
-              matrix='{"include":[{"opnsense":"26.1","plugins_branch":"stable/26.1","freebsd":"14.3","freebsd_major":"14"}]}'
-              ;;
-            26.7)
-              matrix='{"include":[{"opnsense":"26.7","plugins_branch":"stable/26.7","freebsd":"15.1","freebsd_major":"15"}]}'
-              ;;
-            *)
-              echo "Unsupported target: $target" >&2
-              exit 1
-              ;;
-          esac
+          # Build the JSON matrix from the SUPPORTED_VERSIONS env var.
+          matrix=$(python3 - "$target" <<'PYEOF'
+          import sys, json, os
+
+          target = sys.argv[1]
+          rows = []
+          for line in os.environ["SUPPORTED_VERSIONS"].splitlines():
+              line = line.strip()
+              if not line:
+                  continue
+              opnsense, freebsd = line.split("|", 1)
+              rows.append({
+                  "opnsense": opnsense,
+                  "plugins_branch": f"stable/{opnsense}",
+                  "freebsd": freebsd,
+                  "freebsd_major": freebsd.split(".")[0],
+              })
+
+          if target == "all":
+              include = rows
+          else:
+              include = [r for r in rows if r["opnsense"] == target]
+              if not include:
+                  print(f"Unsupported target: {target}", file=sys.stderr)
+                  sys.exit(1)
+
+          print(json.dumps({"include": include}))
+          PYEOF
+          )
 
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
