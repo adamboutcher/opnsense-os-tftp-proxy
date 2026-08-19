@@ -38,10 +38,15 @@ jobs:
 
           # List all stable/* branches in opnsense/plugins and extract the
           # version numbers (e.g. "stable/26.7" -> "26.7").
+          # The grep is wrapped with `|| true`: under pipefail, a "no match"
+          # exit from grep would otherwise abort this step immediately,
+          # skipping the explicit empty-check (and its clearer error
+          # message) below. A real gh api/jq failure earlier in the pipe
+          # still aborts the step - pipefail keeps the last non-zero exit.
           all_versions=$(
             gh api repos/opnsense/plugins/git/matching-refs/heads/stable/ \
               --jq '.[].ref | ltrimstr("refs/heads/stable/")' \
-            | grep -E '^[0-9]+\.[0-9]+$' \
+            | { grep -E '^[0-9]+\.[0-9]+$' || true; } \
             | sort -t. -k1,1n -k2,2n
           )
 
@@ -61,12 +66,15 @@ jobs:
           # Makefile (PLUGIN_FREEBSD variable in opnsense/plugins).
           supported=""
           while IFS= read -r ver; do
+            # Same `|| true` reasoning as above: a missing PLUGIN_FREEBSD
+            # line must fall through to the explicit check below rather
+            # than aborting the step via pipefail on grep's exit status.
             freebsd=$(
               gh api \
                 "repos/opnsense/plugins/contents/Mk/plugins.mk?ref=stable/${ver}" \
                 --jq '.content' \
               | base64 -d \
-              | grep -E '^PLUGIN_FREEBSD[[:space:]]*=' \
+              | { grep -E '^PLUGIN_FREEBSD[[:space:]]*=' || true; } \
               | head -n 1 \
               | sed 's/^PLUGIN_FREEBSD[[:space:]]*=[[:space:]]*//' \
               | tr -d '[:space:]'
@@ -98,8 +106,10 @@ jobs:
 
           release_yml = open(".github/workflows/release.yml").read()
 
-          # Replace the SUPPORTED_VERSIONS block. Use a flexible indentation pattern
-          # so minor whitespace variations don't cause a silent no-op.
+          # Replace the SUPPORTED_VERSIONS block. The `SUPPORTED_VERSIONS:`
+          # key itself must be indented exactly 2 spaces (matching release.yml's
+          # current `env:` block); the entry lines under it accept any amount
+          # of leading whitespace.
           def replace_supported_versions(content, new_block):
               pattern = r'(  SUPPORTED_VERSIONS: \|\n)((?:[ \t]+[^\n]*\n)*)'
               new_lines = ''.join(f"    {line}\n" for line in new_block.splitlines())
