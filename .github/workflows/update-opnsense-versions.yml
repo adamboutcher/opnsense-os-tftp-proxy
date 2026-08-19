@@ -14,6 +14,12 @@ permissions:
   contents: write
   pull-requests: write
 
+# Prevent overlapping schedule/workflow_dispatch runs from racing while
+# force-pushing to the same chore/update-opnsense-versions-YYYY-MM branch.
+concurrency:
+  group: update-opnsense-versions
+  cancel-in-progress: false
+
 jobs:
   update-versions:
     name: Detect and update OPNsense versions
@@ -146,9 +152,13 @@ jobs:
           # pushed a manual fix (e.g. correcting a FreeBSD mapping) to the
           # pending PR, and a blind force-push would silently discard it.
           if gh api "repos/${GITHUB_REPOSITORY}/branches/${branch}" >/dev/null 2>&1; then
-            remote_author=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${branch}" --jq '.commit.author.name')
-            if [ "$remote_author" != "github-actions[bot]" ]; then
-              echo "::error::Branch ${branch} has commits not authored by github-actions[bot] (last author: '${remote_author}'). Refusing to force-push over what may be manual changes on the pending PR." >&2
+            # Use the GitHub-verified account login (.author.login), not the
+            # freeform git commit author name (.commit.author.name) - the
+            # latter is just `git config user.name` and can be set to
+            # anything, so it can't actually attest who pushed the commit.
+            remote_author=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${branch}" --jq '.author.login // ""')
+            if [ -z "$remote_author" ] || [ "$remote_author" != "github-actions[bot]" ]; then
+              echo "::error::Branch ${branch} has a tip commit not attributable to the github-actions[bot] account (resolved login: '${remote_author:-<none>}'). Refusing to force-push over what may be manual changes on the pending PR." >&2
               exit 1
             fi
           fi
