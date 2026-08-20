@@ -52,8 +52,13 @@ INETD_MAIN_CONF="/etc/inetd.conf"
 # true before relying on inetd to pick up our config.
 tftpproxy_ensure_inetd()
 {
-    if ! grep -Eqs '^[[:space:]]*includedir[[:space:]]+/etc/inetd\.conf\.d([[:space:]]|$)' "${INETD_MAIN_CONF}"; then
-        if ! echo "includedir /etc/inetd.conf.d" >> "${INETD_MAIN_CONF}"; then
+    if [ ! -f "${INETD_MAIN_CONF}" ]; then
+        echo "${INETD_MAIN_CONF} not found" >&2
+        return 1
+    fi
+
+    if ! grep -Eq '^[[:space:]]*includedir[[:space:]]+/etc/inetd\.conf\.d([[:space:]]|$)' "${INETD_MAIN_CONF}"; then
+        if ! printf '\nincludedir /etc/inetd.conf.d\n' >> "${INETD_MAIN_CONF}"; then
             echo "Failed to add includedir directive to ${INETD_MAIN_CONF}" >&2
             return 1
         fi
@@ -64,8 +69,13 @@ tftpproxy_ensure_inetd()
         return 1
     fi
 
-    if [ -f /var/run/inetd.pid ] && kill -0 "$(cat /var/run/inetd.pid)" 2>/dev/null; then
-        if ! kill -HUP "$(cat /var/run/inetd.pid)"; then
+    inetd_pid=""
+    if [ -f /var/run/inetd.pid ]; then
+        inetd_pid="$(cat /var/run/inetd.pid)"
+    fi
+
+    if [ -n "${inetd_pid}" ] && kill -0 "${inetd_pid}" 2>/dev/null; then
+        if ! kill -HUP "${inetd_pid}"; then
             echo "Failed to HUP running inetd" >&2
             return 1
         fi
