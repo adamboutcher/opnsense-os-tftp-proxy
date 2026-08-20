@@ -36,8 +36,6 @@ rcvar="os_tftp_proxy_enable"
 load_rc_config os-tftp-proxy
 
 : ${os_tftp_proxy_enable:="NO"}
-: ${os_tftp_proxy_listenaddress:="127.0.0.1"}
-: ${os_tftp_proxy_listenport:="6969"}
 : ${os_tftp_proxy_verbose:="NO"}
 
 start_cmd="tftpproxy_start"
@@ -134,12 +132,16 @@ tftpproxy_write_inetd_block()
         return 1
     }
 
-    awk -v beg="${BEGIN_MARKER}" -v end="${END_MARKER}" '
+    if ! awk -v beg="${BEGIN_MARKER}" -v end="${END_MARKER}" '
         $0 == beg { skipping = 1; next }
         skipping && $0 == end { skipping = 0; next }
         skipping { next }
         { print }
-    ' "${INETD_MAIN_CONF}" > "${tmpfile}"
+    ' "${INETD_MAIN_CONF}" > "${tmpfile}"; then
+        echo "Failed to filter ${INETD_MAIN_CONF}" >&2
+        rm -f "${tmpfile}"
+        return 1
+    fi
 
     {
         printf '%s\n' "${BEGIN_MARKER}"
@@ -173,12 +175,16 @@ tftpproxy_remove_inetd_block()
         return 1
     }
 
-    awk -v beg="${BEGIN_MARKER}" -v end="${END_MARKER}" '
+    if ! awk -v beg="${BEGIN_MARKER}" -v end="${END_MARKER}" '
         $0 == beg { skipping = 1; next }
         skipping && $0 == end { skipping = 0; next }
         skipping { next }
         { print }
-    ' "${INETD_MAIN_CONF}" > "${tmpfile}"
+    ' "${INETD_MAIN_CONF}" > "${tmpfile}"; then
+        echo "Failed to filter ${INETD_MAIN_CONF}" >&2
+        rm -f "${tmpfile}"
+        return 1
+    fi
 
     if ! cat "${tmpfile}" > "${INETD_MAIN_CONF}"; then
         echo "Failed to update ${INETD_MAIN_CONF}" >&2
