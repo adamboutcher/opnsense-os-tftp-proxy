@@ -139,8 +139,18 @@ tftpproxy_start()
 
     # inetd(8) only supports one bind address for all of its services (via
     # -a), so this applies globally - acceptable since tftp-proxy is
-    # currently the only inetd-managed service on OPNsense.
-    if ! /usr/sbin/sysrc -q inetd_flags="-a ${listenaddress}" > /dev/null; then
+    # currently the only inetd-managed service on OPNsense. Preserve any
+    # other existing inetd_flags rather than clobbering them: strip out a
+    # previous "-a <addr>" (ours from an earlier run) and re-add the current
+    # one alongside whatever else was set.
+    other_flags="$(/usr/sbin/sysrc -n inetd_flags 2>/dev/null | \
+        sed -E 's/(^|[[:space:]])-a[[:space:]]+[^[:space:]]+//g; s/^[[:space:]]+//; s/[[:space:]]+$//')"
+    if [ -n "${other_flags}" ]; then
+        new_flags="-a ${listenaddress} ${other_flags}"
+    else
+        new_flags="-a ${listenaddress}"
+    fi
+    if ! /usr/sbin/sysrc -q inetd_flags="${new_flags}" > /dev/null; then
         echo "Failed to set inetd_flags for listen address ${listenaddress}" >&2
         return 1
     fi
