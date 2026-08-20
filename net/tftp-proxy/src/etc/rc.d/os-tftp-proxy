@@ -45,6 +45,25 @@ extra_commands="reload"
 reload_cmd="tftpproxy_reload"
 
 INETD_CONF="/etc/inetd.conf.d/tftp-proxy"
+INETD_MAIN_CONF="/etc/inetd.conf"
+
+# inetd(8) only reads /etc/inetd.conf.d/* if /etc/inetd.conf includes it, and
+# the base system does not enable/run inetd by default. Make sure both are
+# true before relying on inetd to pick up our config.
+tftpproxy_ensure_inetd()
+{
+    if ! grep -qs '^includedir[[:space:]]\+/etc/inetd.conf.d[[:space:]]*$' "${INETD_MAIN_CONF}"; then
+        echo "includedir /etc/inetd.conf.d" >> "${INETD_MAIN_CONF}"
+    fi
+
+    /usr/sbin/sysrc -q inetd_enable=YES > /dev/null
+
+    if [ -f /var/run/inetd.pid ] && kill -0 "$(cat /var/run/inetd.pid)" 2>/dev/null; then
+        kill -HUP "$(cat /var/run/inetd.pid)"
+    else
+        /etc/rc.d/inetd onestart
+    fi
+}
 
 tftpproxy_start()
 {
@@ -52,10 +71,8 @@ tftpproxy_start()
         echo "tftp-proxy inetd config not found: ${INETD_CONF}"
         return 1
     fi
-    if [ -f /var/run/inetd.pid ]; then
-        kill -HUP "$(cat /var/run/inetd.pid)"
-    fi
-    echo "tftp-proxy started (via inetd HUP)"
+    tftpproxy_ensure_inetd
+    echo "tftp-proxy started (via inetd)"
 }
 
 tftpproxy_stop()

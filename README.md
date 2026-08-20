@@ -86,6 +86,12 @@ If you maintain your own package repository, you can also publish it there and i
 
 After installation, configure and enable the plugin in **Services → TFTP Proxy**, then add the firewall rules described below.
 
+Enabling the service also enables and (re)starts the base system's `inetd(8)`
+and adds an `includedir /etc/inetd.conf.d` line to `/etc/inetd.conf` if it
+isn't already present — both are required for `inetd` to pick up
+`tftp-proxy`'s on-demand listener, and neither is on by default on a stock
+OPNsense/FreeBSD install.
+
 ## Firewall Rules
 
 `tftp-proxy(8)` listens on a local UDP port (`127.0.0.1:6969` by default) and needs firewall
