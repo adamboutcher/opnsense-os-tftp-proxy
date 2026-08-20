@@ -34,6 +34,6 @@ class ServiceController extends ApiMutableServiceControllerBase
 {
     protected static $internalServiceClass    = '\OPNsense\TftpProxy\TftpProxy';
     protected static $internalServiceTemplate = 'OPNsense/TftpProxy';
-    protected static $internalServiceEnabled  = 'general.enabled';
+    protected static $internalServiceEnabled  = 'enabled';
     protected static $internalServiceName     = 'tftpproxy';
 }

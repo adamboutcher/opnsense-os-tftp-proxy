@@ -66,6 +66,37 @@ README.md                               # Manual build/install instructions for 
   (regex/min/max), and defaults live in `TftpProxy.xml`. Keep
   `forms/general.xml` (GUI) and `TftpProxy.xml` (model) in sync when
   adding/removing a setting.
+- **`TftpProxy.xml`'s `<mount>` already collapses to `general` — don't
+  reference it again in model-relative code.** The mount is
+  `//OPNsense/tftpproxy/general`, so a `\OPNsense\TftpProxy\TftpProxy()`
+  instance's *root* node already **is** `general`; its direct children are
+  `enabled`, `listenaddress`, `listenport`, `verbose`. There is no nested
+  `general` node beneath that root. Two places in this codebase used to
+  get this wrong — `ServiceController::$internalServiceEnabled =
+  'general.enabled'` (fed into `BaseModel::getNodeByReference()`, which
+  walks child-by-child from the model root) and
+  `tftpproxy.inc`'s `tftpproxy_enabled()` (`$model->general->enabled`) —
+  both should just be `enabled`/`$model->enabled`. With the wrong path,
+  `getNodeByReference()`/`__get` silently returns `null` (no exception),
+  which stringifies to `''` and never equals `'1'`, so `serviceEnabled()`
+  in the base service controller was *always false* — meaning
+  `reconfigureAction()` (what the GUI's "Apply" button calls) only ever
+  ran `stop`, never `start`, no matter what the Enable checkbox said; and
+  `tftpproxy_firewall()` always skipped registering the pf `nat`/`rdr`/
+  `fw` anchors, and `tftpproxy_services()` always returned no services
+  (so this plugin never appeared in Status → Services either). This is
+  silent by construction — nothing throws, nothing logs — so it will not
+  surface as a PHP error; the only way to catch it is checking
+  `/var/log/configd/latest.log` for whether a "starting <service>" line
+  ever appears after enabling+applying, or literally tracing the
+  model-relative path against the model's own `<mount>` value. Templates
+  are unaffected by this: they resolve `OPNsense.tftpproxy.general.enabled`
+  as a full XPath from the document root (via configd helpers), which is
+  a completely different, unrelated resolution mechanism from
+  `getNodeByReference()`/model-object property access. If a future model
+  changes its `<mount>` depth, re-audit every model-relative reference
+  (`getNodeByReference`, `$model->foo->bar` chains) in this plugin against
+  the new mount, the same way you would for this one.
 - **Templates render config into system files.** `os-tftp-proxy` under
   `service/templates/` is a configd/Jinja template, not a static file — it
   references `OPNsense.tftpproxy.general.*` helpers to emit

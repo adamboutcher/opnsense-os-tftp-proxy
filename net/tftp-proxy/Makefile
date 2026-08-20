@@ -1,5 +1,5 @@
 PLUGIN_NAME=		tftp-proxy
-PLUGIN_VERSION=		1.4
+PLUGIN_VERSION=		1.5
 PLUGIN_COMMENT=		Control tftp-proxy processes via pf and inetd
 PLUGIN_MAINTAINER=	adamboutcher
 
