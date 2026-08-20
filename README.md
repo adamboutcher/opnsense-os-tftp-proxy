@@ -82,9 +82,19 @@ Transfer the built package file to your OPNsense system, then install it using:
 
 If you maintain your own package repository, you can also publish it there and install via normal package workflows.
 
+Installing this way (instead of through **System → Firmware → Plugins**) means OPNsense's config never records the plugin as explicitly installed, so it will show as `(misconfigured)` in the plugin list even though it works correctly. Clear that status with:
+
+- `pkg set -A 1 os-tftp-proxy`
+
 ## Configuration
 
 After installation, configure and enable the plugin in **Services → TFTP Proxy**, then add the firewall rules described below.
+
+Enabling the service also enables and (re)starts the base system's `inetd(8)`
+and adds an `includedir /etc/inetd.conf.d` line to `/etc/inetd.conf` if it
+isn't already present — both are required for `inetd` to pick up
+`tftp-proxy`'s on-demand listener, and neither is on by default on a stock
+OPNsense/FreeBSD install.
 
 ## Firewall Rules
 
