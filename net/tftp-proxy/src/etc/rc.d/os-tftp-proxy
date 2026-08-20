@@ -46,6 +46,39 @@ reload_cmd="tftpproxy_reload"
 
 INETD_CONF="/etc/inetd.conf.d/tftp-proxy"
 INETD_MAIN_CONF="/etc/inetd.conf"
+SERVICES_CONF="/etc/services"
+SERVICE_NAME="tftp-proxy"
+
+# inetd(8) on FreeBSD (unlike OpenBSD's) resolves inetd.conf's service-name
+# field via getservbyname(3) against /etc/services - it has no "address:port"
+# service-name syntax, so an entry like "127.0.0.1:6969" is silently rejected
+# as "unknown service" and never listens. Keep a matching /etc/services entry
+# for our configured port instead, and reference it by a fixed name.
+tftpproxy_ensure_services_entry()
+{
+    port="$1"
+
+    if [ ! -f "${SERVICES_CONF}" ]; then
+        echo "${SERVICES_CONF} not found" >&2
+        return 1
+    fi
+
+    if grep -Eq "^${SERVICE_NAME}[[:space:]]+${port}/udp([[:space:]]|\$)" "${SERVICES_CONF}"; then
+        return 0
+    fi
+
+    if grep -Eq "^${SERVICE_NAME}[[:space:]]" "${SERVICES_CONF}"; then
+        if ! sed -i '' "/^${SERVICE_NAME}[[:space:]]/d" "${SERVICES_CONF}"; then
+            echo "Failed to remove stale ${SERVICE_NAME} entry from ${SERVICES_CONF}" >&2
+            return 1
+        fi
+    fi
+
+    if ! printf '%s\t\t%s/udp\n' "${SERVICE_NAME}" "${port}" >> "${SERVICES_CONF}"; then
+        echo "Failed to add ${SERVICE_NAME} entry to ${SERVICES_CONF}" >&2
+        return 1
+    fi
+}
 
 # inetd(8) only reads /etc/inetd.conf.d/* if /etc/inetd.conf includes it, and
 # the base system does not enable/run inetd by default. Make sure both are
@@ -69,14 +102,12 @@ tftpproxy_ensure_inetd()
         return 1
     fi
 
-    inetd_pid=""
-    if [ -f /var/run/inetd.pid ]; then
-        inetd_pid="$(cat /var/run/inetd.pid)"
-    fi
-
-    if [ -n "${inetd_pid}" ] && kill -0 "${inetd_pid}" 2>/dev/null; then
-        if ! kill -HUP "${inetd_pid}"; then
-            echo "Failed to HUP running inetd" >&2
+    if [ -f /var/run/inetd.pid ] && kill -0 "$(cat /var/run/inetd.pid)" 2>/dev/null; then
+        # inetd_flags (our -a bind address below) is only read at process
+        # start, so a config reload (HUP) alone would not pick up a changed
+        # listen address - do a full restart instead.
+        if ! /etc/rc.d/inetd onerestart; then
+            echo "Failed to restart inetd" >&2
             return 1
         fi
     else
@@ -93,6 +124,37 @@ tftpproxy_start()
         echo "tftp-proxy inetd config not found: ${INETD_CONF}"
         return 1
     fi
+
+    listenaddress="$(sed -n 's/^# os-tftp-proxy: listenaddress=\([^ ]*\) listenport=.*/\1/p' "${INETD_CONF}")"
+    listenport="$(sed -n 's/^# os-tftp-proxy: listenaddress=[^ ]* listenport=\([^ ]*\)/\1/p' "${INETD_CONF}")"
+
+    if [ -z "${listenaddress}" ] || [ -z "${listenport}" ]; then
+        echo "Could not read listen address/port from ${INETD_CONF}" >&2
+        return 1
+    fi
+
+    if ! tftpproxy_ensure_services_entry "${listenport}"; then
+        return 1
+    fi
+
+    # inetd(8) only supports one bind address for all of its services (via
+    # -a), so this applies globally - acceptable since tftp-proxy is
+    # currently the only inetd-managed service on OPNsense. Preserve any
+    # other existing inetd_flags rather than clobbering them: strip out a
+    # previous "-a <addr>" (ours from an earlier run) and re-add the current
+    # one alongside whatever else was set.
+    other_flags="$(/usr/sbin/sysrc -n inetd_flags 2>/dev/null | \
+        sed -E 's/(^|[[:space:]])-a[[:space:]]+[^[:space:]]+//g; s/^[[:space:]]+//; s/[[:space:]]+$//')"
+    if [ -n "${other_flags}" ]; then
+        new_flags="-a ${listenaddress} ${other_flags}"
+    else
+        new_flags="-a ${listenaddress}"
+    fi
+    if ! /usr/sbin/sysrc -q inetd_flags="${new_flags}" > /dev/null; then
+        echo "Failed to set inetd_flags for listen address ${listenaddress}" >&2
+        return 1
+    fi
+
     if ! tftpproxy_ensure_inetd; then
         return 1
     fi

@@ -80,6 +80,28 @@ README.md                               # Manual build/install instructions for 
   `os-tftp-proxy` (rc.d) starts/stops the service by writing/removing
   `/etc/inetd.conf.d/tftp-proxy` and HUP-ing inetd — it does not exec the
   proxy binary directly. Preserve this pattern for any lifecycle changes.
+- **Don't assume OpenBSD and FreeBSD `inetd`/base-utility behavior match —
+  verify against FreeBSD, not the `tftp-proxy(8)` man page's example.**
+  `tftp-proxy(8)` originates on OpenBSD, and its man page (carried over
+  into FreeBSD/OPNsense) shows an `inetd.conf` example using
+  `address:port` as the service-name field (e.g.
+  `127.0.0.1:6969 dgram udp wait root ...`). That syntax is an
+  **OpenBSD-only** inetd extension. FreeBSD's `inetd` resolves the
+  service-name field strictly via `getservbyname(3)` against
+  `/etc/services` and has no per-line bind-address syntax at all — that
+  example silently fails as `"unknown service"` on FreeBSD/OPNsense and
+  never listens, with nothing but a syslog line to show for it. This bit
+  the original `inetd.conf.d` template (fixed by using a fixed service
+  name plus a `/etc/services` entry, with the listen address applied
+  globally via `inetd_flags -a`; see git history and README for the
+  rationale). When touching anything BSD-utility-related in this repo
+  (`inetd`, `pf`, rc.d, `sysrc`, etc.), check the actual FreeBSD source
+  (`usr.sbin/inetd/inetd.c`, `usr.sbin/inetd/inetd.8`, or the equivalent
+  for the utility in question) or test on a real FreeBSD/OPNsense host —
+  don't extrapolate from OpenBSD/Linux/macOS docs, man pages, blog posts,
+  or tool behavior in this sandbox (which runs Linux and may have
+  different `sed`/`grep` flag semantics, e.g. `sed -i` requiring no space
+  before its argument on GNU vs. a mandatory separate argument on BSD).
 - **BSD-style license headers.** Every PHP/shell source file carries a
   2-clause BSD copyright header (see existing files). Match that header
   verbatim (year/author) in new source files rather than inventing a new
