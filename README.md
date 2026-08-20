@@ -99,10 +99,13 @@ Installing this way (instead of through **System → Firmware → Plugins**) mea
 After installation, configure and enable the plugin in **Services → TFTP Proxy**, then add the firewall rules described below.
 
 Enabling the service also enables and (re)starts the base system's `inetd(8)`
-and adds an `includedir /etc/inetd.conf.d` line to `/etc/inetd.conf` if it
-isn't already present — both are required for `inetd` to pick up
-`tftp-proxy`'s on-demand listener, and neither is on by default on a stock
-OPNsense/FreeBSD install.
+and writes a marked block into `/etc/inetd.conf` (delimited by
+`# BEGIN os-tftp-proxy` / `# END os-tftp-proxy` comments) if it isn't
+already present — both are required for `inetd` to pick up `tftp-proxy`'s
+on-demand listener, and neither is on by default on a stock OPNsense/FreeBSD
+install. FreeBSD's `inetd` has no `include`/`includedir` directive, so the
+entry is written directly into `/etc/inetd.conf` itself rather than into a
+separate included file.
 
 FreeBSD's `inetd` resolves a service by name against `/etc/services` — it
 has no `address:port` syntax for a service entry (that's an OpenBSD-only

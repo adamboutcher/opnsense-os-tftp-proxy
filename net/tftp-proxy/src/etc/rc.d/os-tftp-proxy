@@ -36,6 +36,9 @@ rcvar="os_tftp_proxy_enable"
 load_rc_config os-tftp-proxy
 
 : ${os_tftp_proxy_enable:="NO"}
+: ${os_tftp_proxy_listenaddress:="127.0.0.1"}
+: ${os_tftp_proxy_listenport:="6969"}
+: ${os_tftp_proxy_verbose:="NO"}
 
 start_cmd="tftpproxy_start"
 stop_cmd="tftpproxy_stop"
@@ -44,10 +47,12 @@ status_cmd="tftpproxy_status"
 extra_commands="reload"
 reload_cmd="tftpproxy_reload"
 
-INETD_CONF="/etc/inetd.conf.d/tftp-proxy"
 INETD_MAIN_CONF="/etc/inetd.conf"
+LEGACY_INETD_CONF_D_FILE="/etc/inetd.conf.d/tftp-proxy"
 SERVICES_CONF="/etc/services"
 SERVICE_NAME="tftp-proxy"
+BEGIN_MARKER="# BEGIN os-tftp-proxy (managed by the os-tftp-proxy package - do not edit)"
+END_MARKER="# END os-tftp-proxy"
 
 # inetd(8) on FreeBSD (unlike OpenBSD's) resolves inetd.conf's service-name
 # field via getservbyname(3) against /etc/services - it has no "address:port"
@@ -80,23 +85,113 @@ tftpproxy_ensure_services_entry()
     fi
 }
 
-# inetd(8) only reads /etc/inetd.conf.d/* if /etc/inetd.conf includes it, and
-# the base system does not enable/run inetd by default. Make sure both are
-# true before relying on inetd to pick up our config.
-tftpproxy_ensure_inetd()
+# FreeBSD's inetd(8) (verified against 14.3-RELEASE's inetd.8 and a
+# "strings /usr/sbin/inetd | grep -i include" check on a real box) has no
+# include/includedir directive at all - that is a feature some other inetd
+# implementations have, but not this one. An earlier version of this plugin
+# added "includedir /etc/inetd.conf.d" to /etc/inetd.conf assuming it did;
+# inetd instead tried to parse that line as a service entry, found only 2 of
+# the 7 required fields, and logged "/etc/inetd.conf: syntax error" forever
+# after - the tftp-proxy entry in the (never-included) .d file was never the
+# problem. Drop that stale directive and its now-orphaned file/entry so
+# upgrading fixes a previously broken install.
+tftpproxy_remove_legacy_includedir()
+{
+    if [ -f "${INETD_MAIN_CONF}" ] && \
+       grep -Eq '^[[:space:]]*includedir[[:space:]]+/etc/inetd\.conf\.d([[:space:]]|$)' "${INETD_MAIN_CONF}"; then
+        if ! sed -i '' -E '/^[[:space:]]*includedir[[:space:]]+\/etc\/inetd\.conf\.d([[:space:]]|$)/d' "${INETD_MAIN_CONF}"; then
+            echo "Failed to remove stale includedir directive from ${INETD_MAIN_CONF}" >&2
+            return 1
+        fi
+    fi
+    rm -f "${LEGACY_INETD_CONF_D_FILE}"
+}
+
+tftpproxy_build_service_line()
+{
+    line="${SERVICE_NAME} dgram udp wait root /usr/libexec/tftp-proxy ${SERVICE_NAME}"
+    if [ "${os_tftp_proxy_verbose}" = "YES" ]; then
+        line="${line} -v"
+    fi
+    echo "${line}"
+}
+
+# Replace our marked block in /etc/inetd.conf (removing any prior copy of it
+# first, so this is idempotent across repeated start/reload calls) with the
+# current listen address/port/verbose setting. Written via a truncating copy
+# rather than a rename so /etc/inetd.conf keeps its original inode/owner/mode.
+tftpproxy_write_inetd_block()
 {
     if [ ! -f "${INETD_MAIN_CONF}" ]; then
         echo "${INETD_MAIN_CONF} not found" >&2
         return 1
     fi
 
-    if ! grep -Eq '^[[:space:]]*includedir[[:space:]]+/etc/inetd\.conf\.d([[:space:]]|$)' "${INETD_MAIN_CONF}"; then
-        if ! printf '\nincludedir /etc/inetd.conf.d\n' >> "${INETD_MAIN_CONF}"; then
-            echo "Failed to add includedir directive to ${INETD_MAIN_CONF}" >&2
-            return 1
-        fi
+    service_line="$(tftpproxy_build_service_line)"
+
+    tmpfile="$(mktemp -t os-tftp-proxy)" || {
+        echo "Failed to create temp file" >&2
+        return 1
+    }
+
+    awk -v beg="${BEGIN_MARKER}" -v end="${END_MARKER}" '
+        $0 == beg { skipping = 1; next }
+        skipping && $0 == end { skipping = 0; next }
+        skipping { next }
+        { print }
+    ' "${INETD_MAIN_CONF}" > "${tmpfile}"
+
+    {
+        printf '%s\n' "${BEGIN_MARKER}"
+        printf '# listenaddress=%s listenport=%s\n' "${os_tftp_proxy_listenaddress}" "${os_tftp_proxy_listenport}"
+        printf '%s\n' "${service_line}"
+        printf '%s\n' "${END_MARKER}"
+    } >> "${tmpfile}"
+
+    if ! cat "${tmpfile}" > "${INETD_MAIN_CONF}"; then
+        echo "Failed to update ${INETD_MAIN_CONF}" >&2
+        rm -f "${tmpfile}"
+        return 1
+    fi
+    rm -f "${tmpfile}"
+}
+
+# Remove our marked block from /etc/inetd.conf entirely (used on stop), same
+# truncating-copy approach as tftpproxy_write_inetd_block.
+tftpproxy_remove_inetd_block()
+{
+    if [ ! -f "${INETD_MAIN_CONF}" ]; then
+        return 0
     fi
 
+    if ! grep -Fxq "${BEGIN_MARKER}" "${INETD_MAIN_CONF}"; then
+        return 0
+    fi
+
+    tmpfile="$(mktemp -t os-tftp-proxy)" || {
+        echo "Failed to create temp file" >&2
+        return 1
+    }
+
+    awk -v beg="${BEGIN_MARKER}" -v end="${END_MARKER}" '
+        $0 == beg { skipping = 1; next }
+        skipping && $0 == end { skipping = 0; next }
+        skipping { next }
+        { print }
+    ' "${INETD_MAIN_CONF}" > "${tmpfile}"
+
+    if ! cat "${tmpfile}" > "${INETD_MAIN_CONF}"; then
+        echo "Failed to update ${INETD_MAIN_CONF}" >&2
+        rm -f "${tmpfile}"
+        return 1
+    fi
+    rm -f "${tmpfile}"
+}
+
+# The base system does not enable/run inetd by default - make sure it is
+# enabled and either started or HUP'd/restarted to pick up our change.
+tftpproxy_ensure_inetd()
+{
     if ! /usr/sbin/sysrc -q inetd_enable=YES > /dev/null; then
         echo "Failed to persist inetd_enable=YES" >&2
         return 1
@@ -120,20 +215,16 @@ tftpproxy_ensure_inetd()
 
 tftpproxy_start()
 {
-    if [ ! -f "${INETD_CONF}" ]; then
-        echo "tftp-proxy inetd config not found: ${INETD_CONF}"
+    if [ -z "${os_tftp_proxy_listenaddress}" ] || [ -z "${os_tftp_proxy_listenport}" ]; then
+        echo "Listen address/port not configured" >&2
         return 1
     fi
 
-    listenaddress="$(sed -n 's/^# os-tftp-proxy: listenaddress=\([^ ]*\) listenport=.*/\1/p' "${INETD_CONF}")"
-    listenport="$(sed -n 's/^# os-tftp-proxy: listenaddress=[^ ]* listenport=\([^ ]*\)/\1/p' "${INETD_CONF}")"
-
-    if [ -z "${listenaddress}" ] || [ -z "${listenport}" ]; then
-        echo "Could not read listen address/port from ${INETD_CONF}" >&2
+    if ! tftpproxy_remove_legacy_includedir; then
         return 1
     fi
 
-    if ! tftpproxy_ensure_services_entry "${listenport}"; then
+    if ! tftpproxy_ensure_services_entry "${os_tftp_proxy_listenport}"; then
         return 1
     fi
 
@@ -146,12 +237,16 @@ tftpproxy_start()
     other_flags="$(/usr/sbin/sysrc -n inetd_flags 2>/dev/null | \
         sed -E 's/(^|[[:space:]])-a[[:space:]]+[^[:space:]]+//g; s/^[[:space:]]+//; s/[[:space:]]+$//')"
     if [ -n "${other_flags}" ]; then
-        new_flags="-a ${listenaddress} ${other_flags}"
+        new_flags="-a ${os_tftp_proxy_listenaddress} ${other_flags}"
     else
-        new_flags="-a ${listenaddress}"
+        new_flags="-a ${os_tftp_proxy_listenaddress}"
     fi
     if ! /usr/sbin/sysrc -q inetd_flags="${new_flags}" > /dev/null; then
-        echo "Failed to set inetd_flags for listen address ${listenaddress}" >&2
+        echo "Failed to set inetd_flags for listen address ${os_tftp_proxy_listenaddress}" >&2
+        return 1
+    fi
+
+    if ! tftpproxy_write_inetd_block; then
         return 1
     fi
 
@@ -163,12 +258,12 @@ tftpproxy_start()
 
 tftpproxy_stop()
 {
-    # Remove the inetd config so it does not re-activate on reload, then HUP
-    # inetd to flush the service entry.
-    if [ -f "${INETD_CONF}" ]; then
-        rm -f "${INETD_CONF}"
+    # Remove our block from /etc/inetd.conf so it does not re-activate on
+    # reload, then HUP inetd to flush the service entry.
+    if ! tftpproxy_remove_inetd_block; then
+        return 1
     fi
-    if [ -f /var/run/inetd.pid ]; then
+    if [ -f /var/run/inetd.pid ] && kill -0 "$(cat /var/run/inetd.pid)" 2>/dev/null; then
         kill -HUP "$(cat /var/run/inetd.pid)"
     fi
     # Terminate any running tftp-proxy worker processes
@@ -178,10 +273,9 @@ tftpproxy_stop()
 
 tftpproxy_restart()
 {
-    # Kill any running worker and re-HUP inetd without touching INETD_CONF,
-    # since tftpproxy_stop removes it and tftpproxy_start requires it to
-    # exist; by the time restart runs, the config has already been
-    # regenerated to reflect the desired state.
+    # Kill any running worker and re-run start, which rewrites the
+    # /etc/inetd.conf block to reflect the current (possibly just-changed)
+    # configuration and restarts inetd to pick it up.
     pkill -f /usr/libexec/tftp-proxy || true
     tftpproxy_start
 }

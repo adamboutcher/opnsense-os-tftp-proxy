@@ -48,8 +48,7 @@ net/tftp-proxy/
         conf/actions.d/actions_tftpproxy.conf   # configd actions (start/stop/restart/status)
         templates/OPNsense/TftpProxy/
           +TARGETS                      # template file list for configd template rendering
-          inetd.conf.d                  # Jinja/Twig template rendering /etc/inetd.conf.d/tftp-proxy
-          os-tftp-proxy                 # rendered into rc.conf.d for the enable flag
+          os-tftp-proxy                 # rendered into rc.conf.d: enable flag + listen address/port/verbose
 .github/workflows/release.yml           # CI: builds .pkg files for tagged releases via a FreeBSD VM
 README.md                               # Manual build/install instructions for end users
 ```
@@ -67,19 +66,27 @@ README.md                               # Manual build/install instructions for 
   (regex/min/max), and defaults live in `TftpProxy.xml`. Keep
   `forms/general.xml` (GUI) and `TftpProxy.xml` (model) in sync when
   adding/removing a setting.
-- **Templates render config into system files.** `inetd.conf.d` and
-  `os-tftp-proxy` under `service/templates/` are configd/Twig templates,
-  not static files — they reference `OPNsense.tftpproxy.general.*`
-  helpers. Any new setting that needs to reach a system file must be
-  wired through a template, not hardcoded.
+- **Templates render config into system files.** `os-tftp-proxy` under
+  `service/templates/` is a configd/Jinja template, not a static file — it
+  references `OPNsense.tftpproxy.general.*` helpers to emit
+  `os_tftp_proxy_enable`/`_listenaddress`/`_listenport`/`_verbose` into
+  `/etc/rc.conf.d/os-tftp-proxy`. The rc.d script reads those rc.conf
+  variables and builds the actual `/etc/inetd.conf` entry itself (see
+  below) — there is no separate template for the inetd entry, since
+  FreeBSD's `inetd` has no mechanism to include one (see the note below on
+  `includedir`). Any new setting that needs to reach a system file must
+  still be wired through the template, not hardcoded.
 - **Firewall anchors are registered in PHP, not pf syntax files.**
   `tftpproxy.inc`'s `tftpproxy_firewall()` calls `$fw->registerAnchor(...)`
   for `nat`/`rdr`/`fw`. Do not add anchors directly to a `.conf`/pf
   template.
 - **Service lifecycle goes through inetd, not a long-running daemon.**
-  `os-tftp-proxy` (rc.d) starts/stops the service by writing/removing
-  `/etc/inetd.conf.d/tftp-proxy` and HUP-ing inetd — it does not exec the
-  proxy binary directly. Preserve this pattern for any lifecycle changes.
+  `os-tftp-proxy` (rc.d) starts/stops the service by writing/removing a
+  marker-delimited block (`# BEGIN os-tftp-proxy ... # END os-tftp-proxy`)
+  directly inside `/etc/inetd.conf` and HUP-ing/restarting inetd — it does
+  not exec the proxy binary directly, and it does not use
+  `/etc/inetd.conf.d` (see below). Preserve this pattern for any lifecycle
+  changes.
 - **Don't assume OpenBSD and FreeBSD `inetd`/base-utility behavior match —
   verify against FreeBSD, not the `tftp-proxy(8)` man page's example.**
   `tftp-proxy(8)` originates on OpenBSD, and its man page (carried over
@@ -102,6 +109,22 @@ README.md                               # Manual build/install instructions for 
   or tool behavior in this sandbox (which runs Linux and may have
   different `sed`/`grep` flag semantics, e.g. `sed -i` requiring no space
   before its argument on GNU vs. a mandatory separate argument on BSD).
+- **FreeBSD's `inetd` has no `include`/`includedir` directive.** An earlier
+  version of this plugin added `includedir /etc/inetd.conf.d` to
+  `/etc/inetd.conf` and rendered the actual service entry into a file
+  under that directory, assuming (from general BSD-daemon convention,
+  not verified) that `inetd` would include it. It doesn't — confirmed
+  against a real FreeBSD 14.3-RELEASE box via `man inetd`'s
+  CONFIGURATION FILE FORMAT section (no include-related line at all) and
+  `strings /usr/sbin/inetd | grep -i include` (no match). `inetd` instead
+  tried to parse the `includedir` line itself as a 7-field service entry,
+  found only 2 tokens, and logged `/etc/inetd.conf: syntax error` — while
+  the entry in the never-included `.d` file was perfectly valid the whole
+  time. Fixed by having the rc.d script write/remove a marker-delimited
+  block directly inside `/etc/inetd.conf` instead (see above); it also
+  strips a leftover `includedir` line and the orphaned `.d` file on
+  upgrade. Do not reintroduce `include`/`includedir` for this or any
+  other BSD daemon in this repo without confirming support the same way.
 - **BSD-style license headers.** Every PHP/shell source file carries a
   2-clause BSD copyright header (see existing files). Match that header
   verbatim (year/author) in new source files rather than inventing a new
