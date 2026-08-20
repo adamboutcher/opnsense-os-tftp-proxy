@@ -89,10 +89,7 @@ After installation, configure and enable it in **Services → TFTP Proxy**, then
 ## Firewall Rules
 
 `tftp-proxy(8)` listens on a local UDP port (`127.0.0.1:6969` by default) and needs firewall
-rules to get client traffic to it. The plugin automatically registers the pf(4) anchors
-(`nat-anchor`, `rdr-anchor` and `anchor "tftp-proxy/*"`) that `tftp-proxy` uses to dynamically
-open the TFTP data channel for each transfer, so you do **not** need to add anything to
-`pf.conf` yourself for that part. You do need to add the two rules below manually.
+rules to get client traffic to it. Add the rules below.
 
 ### 1. NAT port forward — redirect incoming TFTP to the proxy
 
@@ -123,15 +120,14 @@ rules manually instead, add one under **Firewall → Rules → \<interface\>**:
 ### 3. Outbound rule — allow the proxy to reach the real TFTP server
 
 `tftp-proxy` runs on the firewall itself and opens a new UDP connection to the real TFTP
-server on the client's behalf, then dynamically permits the return data channel via the
-anchors mentioned above. Default "allow all" outbound policies need no changes here. If you
-run a restrictive floating/outbound rule set that blocks traffic sourced from the firewall
-itself, add a rule allowing outbound UDP from the firewall to your TFTP server(s) (or any,
-if the server address isn't fixed).
+server on the client's behalf. Default "allow all" outbound policies need no changes here.
+If you run a restrictive floating/outbound rule set that blocks traffic sourced from the
+firewall itself, add a rule allowing outbound UDP from the firewall to your TFTP server(s)
+(or any, if the server address isn't fixed).
 
 ### Notes
 
 - No manual rule is needed for the TFTP data channel itself (the random high UDP port
-  negotiated per transfer) — that's exactly what `tftp-proxy` and its dynamic anchors handle.
+  negotiated per transfer) — `tftp-proxy` opens that dynamically on the client's behalf.
 - If you change **Listen Address** or **Listen Port** in the plugin settings, update the
   redirect target in the NAT rule (and the pass rule, if manually managed) to match.
