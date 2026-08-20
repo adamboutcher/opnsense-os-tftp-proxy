@@ -30,7 +30,7 @@ function tftpproxy_enabled()
 {
     $model = new \OPNsense\TftpProxy\TftpProxy();
 
-    if ((string)$model->general->enabled === '1') {
+    if ((string)$model->enabled === '1') {
         return true;
     }
 
