@@ -4,7 +4,7 @@
 
 This plugin is **not yet published** in the official OPNsense plugins repository, so installation currently requires manual steps.
 
-### Manual installation (current)
+### Manual Install - Build
 
 If you usually install plugins from **System → Firmware → Plugins**, this process is different:
 
@@ -82,9 +82,9 @@ Transfer the built package file to your OPNsense system, then install it using:
 
 If you maintain your own package repository, you can also publish it there and install via normal package workflows.
 
-#### 7) Configure
+## Configuration
 
-After installation, configure and enable it in **Services → TFTP Proxy**, then add the firewall rules described below.
+After installation, configure and enable the plugin in **Services → TFTP Proxy**, then add the firewall rules described below.
 
 ## Firewall Rules
 
