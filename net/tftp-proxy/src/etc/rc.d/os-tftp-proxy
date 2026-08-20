@@ -52,16 +52,28 @@ INETD_MAIN_CONF="/etc/inetd.conf"
 # true before relying on inetd to pick up our config.
 tftpproxy_ensure_inetd()
 {
-    if ! grep -qs '^includedir[[:space:]]\+/etc/inetd.conf.d[[:space:]]*$' "${INETD_MAIN_CONF}"; then
-        echo "includedir /etc/inetd.conf.d" >> "${INETD_MAIN_CONF}"
+    if ! grep -Eqs '^[[:space:]]*includedir[[:space:]]+/etc/inetd\.conf\.d([[:space:]]|$)' "${INETD_MAIN_CONF}"; then
+        if ! echo "includedir /etc/inetd.conf.d" >> "${INETD_MAIN_CONF}"; then
+            echo "Failed to add includedir directive to ${INETD_MAIN_CONF}" >&2
+            return 1
+        fi
     fi
 
-    /usr/sbin/sysrc -q inetd_enable=YES > /dev/null
+    if ! /usr/sbin/sysrc -q inetd_enable=YES > /dev/null; then
+        echo "Failed to persist inetd_enable=YES" >&2
+        return 1
+    fi
 
     if [ -f /var/run/inetd.pid ] && kill -0 "$(cat /var/run/inetd.pid)" 2>/dev/null; then
-        kill -HUP "$(cat /var/run/inetd.pid)"
+        if ! kill -HUP "$(cat /var/run/inetd.pid)"; then
+            echo "Failed to HUP running inetd" >&2
+            return 1
+        fi
     else
-        /etc/rc.d/inetd onestart
+        if ! /etc/rc.d/inetd onestart; then
+            echo "Failed to start inetd" >&2
+            return 1
+        fi
     fi
 }
 
@@ -71,7 +83,9 @@ tftpproxy_start()
         echo "tftp-proxy inetd config not found: ${INETD_CONF}"
         return 1
     fi
-    tftpproxy_ensure_inetd
+    if ! tftpproxy_ensure_inetd; then
+        return 1
+    fi
     echo "tftp-proxy started (via inetd)"
 }
 
