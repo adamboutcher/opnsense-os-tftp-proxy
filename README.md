@@ -1,8 +1,16 @@
-# OpnSense Plugin: os-tftp-proxy
+# OPNsense Plugin: os-tftp-proxy
+
+This plugin was developed using AI (Claude and Copilot).
 
 ## Installation
 
 This plugin is **not yet published** in the official OPNsense plugins repository, so installation currently requires manual steps.
+
+### Manual Install - Pre-Packaged
+
+1. Download the `pkg` file for your OPNsense release from our [releases secion](https://github.com/adamboutcher/opnsense-os-tftp-proxy/releases).
+2. Copy the `pkg` file to your OPNsense firewall (Or curl direct `curl -L -O <URL>`).
+3. Install using the `pkg add` tool (as per below).
 
 ### Manual Install - Build
 
