@@ -3,3 +3,10 @@ os_tftp_proxy_enable="YES"
 {% else %}
 os_tftp_proxy_enable="NO"
 {% endif %}
+os_tftp_proxy_listenaddress="{{ OPNsense.tftpproxy.general.listenaddress }}"
+os_tftp_proxy_listenport="{{ OPNsense.tftpproxy.general.listenport }}"
+{% if helpers.exists('OPNsense.tftpproxy.general.verbose') and OPNsense.tftpproxy.general.verbose == '1' %}
+os_tftp_proxy_verbose="YES"
+{% else %}
+os_tftp_proxy_verbose="NO"
+{% endif %}

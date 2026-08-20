@@ -1,2 +1,1 @@
-inetd.conf.d:/etc/inetd.conf.d/tftp-proxy
 os-tftp-proxy:/etc/rc.conf.d/os-tftp-proxy
