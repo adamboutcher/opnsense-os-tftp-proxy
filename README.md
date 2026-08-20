@@ -96,6 +96,15 @@ isn't already present — both are required for `inetd` to pick up
 `tftp-proxy`'s on-demand listener, and neither is on by default on a stock
 OPNsense/FreeBSD install.
 
+FreeBSD's `inetd` resolves a service by name against `/etc/services` — it
+has no `address:port` syntax for a service entry (that's an OpenBSD-only
+extension some `tftp-proxy` documentation assumes). The plugin keeps a
+matching `/etc/services` entry for your configured **Listen Port**
+automatically, and applies **Listen Address** globally to `inetd` via
+`inetd_flags="-a <address>"` (the only way `inetd` supports restricting its
+bind address) — this affects any other `inetd`-managed service on the box,
+which is fine as long as `tftp-proxy` is the only one in use.
+
 ## Firewall Rules
 
 `tftp-proxy(8)` listens on a local UDP port (`127.0.0.1:6969` by default) and needs firewall
