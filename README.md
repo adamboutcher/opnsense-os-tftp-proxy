@@ -121,16 +121,16 @@ which is fine as long as `tftp-proxy` is the only one in use.
 `tftp-proxy(8)` listens on a local UDP port (`127.0.0.1:6969` by default) and needs firewall
 rules to get client traffic to it. Add the rules below.
 
-### 1. NAT port forward — redirect incoming TFTP to the proxy
+### 1. Destination NAT - Capture TFTP Traffic
 
-Go to **Firewall → NAT → Port Forward** and add a rule on the interface that receives TFTP
+Go to **Firewall → NAT → Destination NAT** and add a rule on the interface that receives TFTP
 requests (usually WAN):
 
 | Field | Value |
 |---|---|
-| Interface | WAN (or the interface facing your TFTP clients) |
+| Interface | LAN |
 | Protocol | UDP |
-| Destination | The WAN address (or whichever IP your clients target) |
+| Destination | IP of TFTP Server on the WAN side |
 | Destination port range | TFTP (69) |
 | Redirect target IP | Must match **Listen Address** in the TFTP Proxy settings (default `127.0.0.1`) |
 | Redirect target port | Must match **Listen Port** in the TFTP Proxy settings (default `6969`) |
