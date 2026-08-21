@@ -27,4 +27,10 @@
         <type>checkbox</type>
         <help>Pass -v to tftp-proxy for verbose connection logging to syslog.</help>
     </field>
+    <field>
+        <id>general.transwait</id>
+        <label>Proxy Timeout</label>
+        <type>text</type>
+        <help>Seconds tftp-proxy keeps its temporary pf(4) rule (and holds a process open) after relaying a request, before assuming the transfer is under way and cleaning up (tftp-proxy's -w flag, default 2). Each request occupies tftp-proxy for at least this long, so a busy client that retries aggressively (e.g. searching many candidate config filenames) can queue up faster than tftp-proxy can drain if this is set higher than your network's actual round-trip time requires. Lower it toward your real server round-trip time to raise the sustainable request rate before that backlog causes lookups to start failing.</help>
+    </field>
 </form>

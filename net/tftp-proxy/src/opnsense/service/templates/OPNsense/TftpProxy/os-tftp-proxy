@@ -10,3 +10,4 @@ os_tftp_proxy_verbose="YES"
 {% else %}
 os_tftp_proxy_verbose="NO"
 {% endif %}
+os_tftp_proxy_transwait="{{ OPNsense.tftpproxy.general.transwait }}"

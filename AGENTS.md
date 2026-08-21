@@ -156,6 +156,33 @@ README.md                               # Manual build/install instructions for 
   strips a leftover `includedir` line and the orphaned `.d` file on
   upgrade. Do not reintroduce `include`/`includedir` for this or any
   other BSD daemon in this repo without confirming support the same way.
+- **`tftp-proxy(8)` is `dgram wait`, so `inetd` spawns a brand-new process
+  for every single UDP datagram that hits its listening port — including
+  every retransmission, not just distinct requests.** Confirmed against
+  `contrib/pf/tftp-proxy/tftp-proxy.c` in `freebsd/freebsd-src`: on a
+  successful relay it calls `sleep(transwait)` (default 2s, `-w` flag,
+  now exposed as the `general.transwait` model field / "Proxy Timeout" GUI
+  setting) *before* tearing down its temporary pf(4) rule and exiting — so
+  every successful request holds a process (and contends for pf's global
+  rule-transaction lock with `DIOCXBEGIN`/`DIOCXCOMMIT`) for at least that
+  long, while a failed one (`server_lookup()`/`DIOCNATLOOK` finding no
+  matching NAT state) exits almost immediately. A client that retries
+  aggressively enough (e.g. GRUB2 probing many candidate config filenames)
+  can generate new requests faster than `tftp-proxy` can drain them at
+  that rate; the backlog of concurrently-alive-but-queued processes then
+  grows without bound, and once a queued request's turn at the lock comes
+  later than pf's own `udp.first` state timeout (60s by default), its
+  `DIOCNATLOOK` lookup fails outright (logged as `pf connection lookup
+  failed (no rdr?)`) — confirmed live via 1500+ such log lines spanning
+  over an hour on a real box. This is a sustained, self-reinforcing
+  overload once the arrival rate crosses that threshold, not a transient
+  blip — it does not clear on its own. Lowering `transwait` closer to the
+  real round-trip time to the TFTP server (typically low milliseconds on
+  a LAN) raises the sustainable request-rate ceiling before this cascade
+  starts; there is no way to fix the underlying per-invocation pf-
+  transaction cost itself from this plugin, since `tftp-proxy` is an
+  upstream FreeBSD/OpenBSD base-system binary, not something built by
+  this plugin's own source.
 - **BSD-style license headers.** Every PHP/shell source file carries a
   2-clause BSD copyright header (see existing files). Match that header
   verbatim (year/author) in new source files rather than inventing a new
