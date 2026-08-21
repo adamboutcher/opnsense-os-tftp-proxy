@@ -37,6 +37,7 @@ load_rc_config os-tftp-proxy
 
 : ${os_tftp_proxy_enable:="NO"}
 : ${os_tftp_proxy_verbose:="NO"}
+: ${os_tftp_proxy_transwait:="2"}
 
 start_cmd="tftpproxy_start"
 stop_cmd="tftpproxy_stop"
@@ -111,6 +112,15 @@ tftpproxy_build_service_line()
     if [ "${os_tftp_proxy_verbose}" = "YES" ]; then
         line="${line} -v"
     fi
+    # tftp-proxy holds its temporary pf(4) rule open (and a process alive)
+    # for this many seconds after relaying each request before assuming the
+    # transfer has started and cleaning up (see tftp-proxy(8) -w). A client
+    # that retries aggressively can generate requests faster than tftp-proxy
+    # can drain them at the default 2s, backing up until pf's own udp.first
+    # state timeout expires requests still waiting their turn - lowering
+    # this toward the real round-trip time to the TFTP server raises the
+    # request rate that can be sustained before that happens.
+    line="${line} -w ${os_tftp_proxy_transwait}"
     echo "${line}"
 }
 

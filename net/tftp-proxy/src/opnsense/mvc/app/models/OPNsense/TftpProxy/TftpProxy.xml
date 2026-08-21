@@ -24,5 +24,12 @@
             <Default>0</Default>
             <Required>N</Required>
         </verbose>
+        <transwait type="IntegerField">
+            <Default>2</Default>
+            <Required>Y</Required>
+            <MinimumValue>1</MinimumValue>
+            <MaximumValue>30</MaximumValue>
+            <ValidationMessage>Proxy timeout must be between 1 and 30 seconds</ValidationMessage>
+        </transwait>
     </items>
 </model>
